@@ -43,7 +43,7 @@ def generate_followup_email(project_id: int, lead_id: int, feedback_summary: str
     ]
 
     response = openai.ChatCompletion.create(
-        model="gpt-4",
+        model="gpt-4o",
         messages=messages
     )
 
