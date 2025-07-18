@@ -24,6 +24,7 @@ class EmailRejectionRequest(BaseModel):
     original_email: dict  # {"subject": str, "body": str}
     user_feedback: str
     email_type: str = "initial"  # "initial" 또는 "followup"
+    # 응답: {"action": str, "new_email": dict, "analysis": dict, "improvements": list, "message": str}
 
 class EmailAnalysisRequest(BaseModel):
     email_content: dict  # {"subject": str, "body": str}

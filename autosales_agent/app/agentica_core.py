@@ -102,7 +102,7 @@ def generate_followup_email(project_id: int, lead_id: int, feedback_summary: str
         messages=messages
     )
 
-    content = response['choices'][0]['message']['content']
+    content = response.choices[0].message.content
 
     try:
         match = re.search(r'\{.*\}', content, re.DOTALL)
@@ -152,7 +152,7 @@ def summarize_feedback(feedback_text: str) -> dict:
         messages=messages
     )
 
-    content = response['choices'][0]['message']['content']
+    content = response.choices[0].message.content
 
     try:
         match = re.search(r'\{.*\}', content, re.DOTALL)
@@ -300,7 +300,7 @@ def regenerate_email_with_feedback(
         original_email: 원본 이메일 {"subject": str, "body": str}
         user_feedback: 사용자 피드백
         email_type: "initial" 또는 "followup"
-    Returns: {"subject": str, "body": str, "improvements": list}
+    Returns: {"subject": str, "body": str}
     """
     
     # 이메일 문제점 분석
@@ -316,8 +316,7 @@ def regenerate_email_with_feedback(
             "다음 JSON 형식으로만 응답해. 설명은 포함하지 마.\n"
             "{\n"
             "  \"subject\": \"개선된 이메일 제목\",\n"
-            "  \"body\": \"개선된 이메일 본문\",\n"
-            "  \"improvements\": [\"개선된 부분 1\", \"개선된 부분 2\"]\n"
+            "  \"body\": \"개선된 이메일 본문\"\n"
             "}\n\n"
             "이메일에는 다음 요소를 포함해:\n"
             "- 고객 상황 언급\n"
@@ -332,8 +331,7 @@ def regenerate_email_with_feedback(
             "다음 JSON 형식으로만 응답해. 설명은 포함하지 마.\n"
             "{\n"
             "  \"subject\": \"개선된 후속 이메일 제목\",\n"
-            "  \"body\": \"개선된 후속 이메일 본문\",\n"
-            "  \"improvements\": [\"개선된 부분 1\", \"개선된 부분 2\"]\n"
+            "  \"body\": \"개선된 후속 이메일 본문\"\n"
             "}\n\n"
             "후속 이메일에는 다음 요소를 포함해:\n"
             "- 이전 제안에 대한 추가 정보\n"
@@ -373,9 +371,7 @@ def regenerate_email_with_feedback(
             result = json.loads(match.group())
             return {
                 "subject": result.get("subject", ""),
-                "body": result.get("body", ""),
-                "improvements": result.get("improvements", []),
-                "original_issues": issues_analysis["issues"]
+                "body": result.get("body", "")
             }
     except Exception as e:
         pass
@@ -383,9 +379,7 @@ def regenerate_email_with_feedback(
     # 실패 시 기본 응답
     return {
         "subject": "개선된 제안",
-        "body": "사용자 피드백을 반영하여 이메일을 개선했습니다.",
-        "improvements": ["사용자 피드백 반영"],
-        "original_issues": issues_analysis["issues"]
+        "body": "사용자 피드백을 반영하여 이메일을 개선했습니다."
     }
 
 def handle_email_rejection(
@@ -397,7 +391,7 @@ def handle_email_rejection(
 ) -> dict:
     """
     이메일 거부 시 처리하는 통합 함수
-    Returns: {"action": str, "new_email": dict, "analysis": dict}
+    Returns: {"action": str, "new_email": dict, "analysis": dict, "improvements": list}
     """
     
     # 이메일 문제점 분석
@@ -412,6 +406,7 @@ def handle_email_rejection(
             "action": "regenerate",
             "new_email": new_email,
             "analysis": analysis,
+            "improvements": analysis["suggestions"],
             "message": "문제점이 심각하여 이메일을 새로 작성했습니다."
         }
     else:
@@ -423,5 +418,6 @@ def handle_email_rejection(
             "action": "improve",
             "new_email": improved_email,
             "analysis": analysis,
+            "improvements": analysis["suggestions"],
             "message": "기존 이메일을 개선했습니다."
         }
