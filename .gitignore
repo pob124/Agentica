@@ -1,2 +1,12 @@
 autosales_agent/app/__pycache__/main.cpython-312.pyc
 autosales_agent/app/__pycache__/agentica_core.cpython-312.pyc
+
+# VSCode 설정 파일
+.vscode/
+
+# Python 캐시 파일들
+app/__pycache__/agentica_core.cpython-310.pyc
+app/__pycache__/main.cpython-310.pyc
+
+# 상위 디렉토리의 requirements.txt
+../requirements.txt
