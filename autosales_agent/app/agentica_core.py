@@ -83,11 +83,24 @@ def generate_emails_for_multiple_leads(project_id: int, lead_info_list: list[dic
     result = []
 
     for lead_info in lead_info_list:
-        email = generate_initial_email(project_id, lead_info)
-        result.append({
-            "lead": lead_info,
-            "email": email
-        })
+        try:
+            email = generate_initial_email(project_id, lead_info)
+            result.append({
+                "lead": lead_info,
+                "email": email,
+                "status": "success"
+            })
+        except Exception as e:
+            # 개별 기업 처리 실패 시에도 다른 기업들은 계속 처리
+            result.append({
+                "lead": lead_info,
+                "email": {
+                    "subject": "제안드립니다",
+                    "body": "안녕하세요, 고객님의 상황을 고려한 제안을 드리고자 연락드립니다..."
+                },
+                "status": "error",
+                "error": str(e)
+            })
 
     return result
 
@@ -198,26 +211,74 @@ def summarize_feedback(feedback_text: str) -> dict:
     }
 
 
-# 프롬프트 해석 함수 (ai 기반)
-def analyze_prompt_ai(prompt: str) -> str:
+def extract_parameters_from_prompt(prompt: str, intent: str) -> dict:
     """
-    GPT를 활용한 인텐트 분류 (명확한 intent key만 반환)
+    프롬프트에서 특정 intent에 필요한 파라미터를 추출
+    """
+    if intent == "register_project":
+        # "이런 사업 할거야: AI 솔루션 제공" → description 추출
+        if ":" in prompt:
+            description = prompt.split(":", 1)[1].strip()
+            return {"description": description}
+        return {}
+    
+    elif intent == "initial_email":
+        # "프로젝트 1번에 테크스타트업 3곳에 메일 보내줘" → project_id 추출
+        import re
+        project_match = re.search(r'프로젝트\s*(\d+)', prompt)
+        if project_match:
+            return {"project_id": int(project_match.group(1))}
+        return {}
+    
+    elif intent == "email_rewrite_request":
+        # "메일이 이상하게 나왔어 다시 작성해줘" → 피드백 추출
+        feedback_keywords = ["이상하게", "별로", "개선", "다시", "수정"]
+        for keyword in feedback_keywords:
+            if keyword in prompt:
+                return {"user_feedback": f"사용자 피드백: {prompt}"}
+        return {}
+    
+    return {}
+
+
+# 프롬프트 해석 함수 (ai 기반)
+def analyze_prompt_ai(prompt: str) -> dict:
+    """
+    GPT를 활용한 인텐트 분류 및 파라미터 추출
+    Returns: {"intent": str, "extracted_params": dict, "confidence": float}
     """
     messages = [
         {
             "role": "system",
             "content": (
-                "다음 사용자 요청이 어떤 의도(intent)에 해당하는지 분류해줘.\n"
-                "다음 중 하나만 응답으로 줘:\n"
-                "- register_project\n"
-                "- initial_email\n"
-                "- followup_email\n"
-                "- email_rewrite_request\n"
-                "- list_projects\n"
-                "- list_leads\n"
-                "- add_lead\n"
-                "- unknown\n\n"
-                "절대로 설명하지 마. 반드시 위 키워드 하나만 텍스트로 응답해."
+                "사용자 요청을 분석하여 의도(intent)와 필요한 파라미터를 추출해줘.\n"
+                "다음 JSON 형식으로만 응답해:\n"
+                "{\n"
+                "  \"intent\": \"register_project|initial_email|followup_email|email_rewrite_request|list_projects|list_leads|add_lead|unknown\",\n"
+                "  \"extracted_params\": {\n"
+                "    \"project_id\": null,\n"
+                "    \"description\": null,\n"
+                "    \"leads\": null,\n"
+                "    \"lead_id\": null,\n"
+                "    \"feedback_text\": null,\n"
+                "    \"user_feedback\": null\n"
+                "  },\n"
+                "  \"confidence\": 0.0\n"
+                "}\n\n"
+                "파라미터 사용 패턴:\n"
+                "- register_project: description (사업 설명)\n"
+                "- initial_email: project_id (프로젝트 ID), leads (기업 정보)\n"
+                "- followup_email: project_id, lead_id, feedback_text (피드백 내용)\n"
+                "- email_rewrite_request: user_feedback (개선 요청)\n"
+                "- list_projects: 파라미터 없음\n"
+                "- list_leads: 파라미터 없음\n"
+                "- add_lead: 파라미터 없음\n\n"
+                "자연스러운 표현 예시:\n"
+                "- '이런 사업 할거야: AI 솔루션 제공' → intent: register_project, description: 'AI 솔루션 제공'\n"
+                "- '프로젝트 1번에 메일 보내줘' → intent: initial_email, project_id: 1\n"
+                "- '메일이 이상하게 나왔어 다시 작성해줘' → intent: email_rewrite_request, user_feedback: '메일이 이상하게 나왔어'\n"
+                "- '지금 어떤 사업 하고 있는지 말해줘' → intent: list_projects\n\n"
+                "파라미터가 명확하지 않으면 null로 설정해."
             )
         },
         {
@@ -232,44 +293,80 @@ def analyze_prompt_ai(prompt: str) -> str:
             messages=messages,
             timeout=10
         )
-        return response.choices[0].message.content.strip()
-    except:
-        return "unknown"
+        content = response.choices[0].message.content
+        
+        # JSON 파싱
+        import json
+        result = json.loads(content)
+        
+        # 추가 파라미터 추출
+        intent = result["intent"]
+        additional_params = extract_parameters_from_prompt(prompt, intent)
+        
+        # 추출된 파라미터를 기존 파라미터와 병합
+        for key, value in additional_params.items():
+            if value is not None:
+                result["extracted_params"][key] = value
+        
+        return result
+    except Exception as e:
+        # 실패 시 기본값 반환
+        return {
+            "intent": "unknown",
+            "extracted_params": {},
+            "confidence": 0.0
+        }
 
 
 # 챗봇 핸들러 함수
 def chatbot_handler(user_prompt: str, payload: Dict[str, Any], debug: bool = False) -> Dict[str, Any]:
-    intent = analyze_prompt_ai(user_prompt)
+    intent_data = analyze_prompt_ai(user_prompt)
+    intent = intent_data["intent"]
+    extracted_params = intent_data["extracted_params"]
+    confidence = intent_data["confidence"]
+
+    # 추출된 파라미터를 payload와 병합
+    merged_payload = payload.copy()
+    for key, value in extracted_params.items():
+        if value is not None:
+            merged_payload[key] = value
 
     # fallback: email_rewrite_request인데 필수 항목이 없으면 initial_email로 강제 전환
     if intent == "email_rewrite_request":
         required = ["project_id", "lead_info", "original_email", "user_feedback"]
-        if not all(k in payload for k in required):
+        if not all(k in merged_payload for k in required):
             intent = "initial_email"
 
     if intent == "register_project":
-        project_id = payload.get("project_id")
-        description = payload.get("description")
+        project_id = merged_payload.get("project_id")
+        description = merged_payload.get("description")
         if not project_id or not description:
             return {"error": "'project_id'와 'description'은 필수입니다.", "intent": intent if debug else None}
         return register_project_context(project_id, description)
 
     elif intent == "initial_email":
-        project_id = payload.get("project_id")
-        leads = payload.get("leads")  # list or dict
+        project_id = merged_payload.get("project_id")
+        leads = merged_payload.get("leads")  # list or dict
 
         if not project_id or not leads:
             return {"error": "'project_id'와 'leads'는 필수입니다.", "intent": intent if debug else None}
 
+        # 다중 기업 처리
         if isinstance(leads, list):
-            return generate_emails_for_multiple_leads(project_id, leads)
+            if len(leads) == 1:
+                # 단일 기업인 경우 기존 방식으로 처리
+                return generate_initial_email(project_id, leads[0])
+            else:
+                # 다중 기업인 경우 개별 처리
+                return generate_emails_for_multiple_leads(project_id, leads)
         else:
+            # 단일 기업 객체인 경우
             return generate_initial_email(project_id, leads)
 
     elif intent == "followup_email":
-        project_id = payload.get("project_id")
-        lead_id = payload.get("lead_id")
-        feedback_text = payload.get("feedback_text")
+        project_id = merged_payload.get("project_id")
+        lead_id = merged_payload.get("lead_id")
+        feedback_text = merged_payload.get("feedback_text")
 
         if not project_id or not lead_id or not feedback_text:
             return {"error": "'project_id', 'lead_id', 'feedback_text'는 필수입니다.", "intent": intent if debug else None}
@@ -278,11 +375,11 @@ def chatbot_handler(user_prompt: str, payload: Dict[str, Any], debug: bool = Fal
         return generate_followup_email(project_id, lead_id, feedback["summary"])
 
     elif intent == "email_rewrite_request":
-        project_id = payload.get("project_id")
-        lead_info = payload.get("lead_info")
-        original_email = payload.get("original_email")
-        user_feedback = payload.get("user_feedback")
-        email_type = payload.get("email_type", "initial")
+        project_id = merged_payload.get("project_id")
+        lead_info = merged_payload.get("lead_info")
+        original_email = merged_payload.get("original_email")
+        user_feedback = merged_payload.get("user_feedback")
+        email_type = merged_payload.get("email_type", "initial")
 
         if not all([project_id, lead_info, original_email, user_feedback]):
             return {"error": "필수 파라미터 누락: 'project_id', 'lead_info', 'original_email', 'user_feedback'", "intent": intent if debug else None}
@@ -290,18 +387,20 @@ def chatbot_handler(user_prompt: str, payload: Dict[str, Any], debug: bool = Fal
         return handle_email_rejection(project_id, lead_info, original_email, user_feedback, email_type)
 
     elif intent == "list_projects":
-        return {"projects": []}  # TODO
+        return {"projects": [], "message": "프로젝트 목록 조회 기능은 아직 구현되지 않았습니다."}
 
     elif intent == "list_leads":
-        return {"leads": []}  # TODO
+        return {"leads": [], "message": "기업 목록 조회 기능은 아직 구현되지 않았습니다."}
 
     elif intent == "add_lead":
-        return {"message": "기업 등록 기능은 아직 구현되지 않았습니다."}
+        return {"message": "기업 추가 기능은 아직 구현되지 않았습니다."}
 
     else:
         return {
             "error": "요청을 이해하지 못했습니다. 프롬프트를 구체적으로 작성해주세요.",
-            "intent": intent if debug else None
+            "intent": intent if debug else None,
+            "confidence": confidence if debug else None,
+            "tip": "자세하게 적을수록 결과 품질이 높습니다."
         }
 
 

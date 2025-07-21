@@ -63,6 +63,10 @@ async def handle_chatbot(req: ChatbotRequest):
     - 프로젝트/기업 조회 등
 
     ⚠️ 프롬프트는 **자세히 입력할수록 결과 품질이 높습니다.**
+    💡 예시:
+    - "이런 사업 할거야: AI 기반 고객 관리 솔루션을 제공합니다"
+    - "이 사업에 관련된 기업에 메일 보내줘: 테크스타트업 3곳"
+    - "메일이 이상하게 나왔어 다시 작성해줘: 너무 일반적이에요"
     """
     try:
         result = chatbot_handler(req.prompt, req.payload)
