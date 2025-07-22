@@ -16,7 +16,8 @@ class EmailRequest(BaseModel):
     leads: Union[dict, List[dict]]
 
 class ChatbotRequest(BaseModel):
-    prompt: str
+    intent: str  # 사용자가 선택한 의도
+    prompt: str = ""  # 추가 설명 (선택사항)
     payload: Dict[str, Any] = {}
 
 class EmailRejectionRequest(BaseModel):
@@ -56,20 +57,25 @@ def generate_email(req: EmailRequest):
 @app.post("/chatbot/")
 async def handle_chatbot(req: ChatbotRequest):
     """
-    사용자 프롬프트 기반 자동 처리:
-    - 사업 등록
-    - 초안/후속 메일 생성
-    - 이메일 재작성
-    - 프로젝트/기업 조회 등
-
-    ⚠️ 프롬프트는 **자세히 입력할수록 결과 품질이 높습니다.**
+    사용자 선택 의도 기반 처리:
+    
+    지원하는 intent:
+    - "register_project": 사업 등록
+    - "generate_initial_emails": 초기 이메일 생성 (단일/다중 기업)
+    - "generate_followup_emails": 사용자 피드백 기반 이메일 재작성 (단일/다중 기업)
+    - "generate_feedback_emails": 피드백 기반 이메일 생성 (단일/다중 기업)
+    - "analyze_email": 이메일 분석
+    - "list_projects": 프로젝트 목록 조회
+    - "list_leads": 기업 목록 조회
+    
     💡 예시:
-    - "이런 사업 할거야: AI 기반 고객 관리 솔루션을 제공합니다"
-    - "이 사업에 관련된 기업에 메일 보내줘: 테크스타트업 3곳"
-    - "메일이 이상하게 나왔어 다시 작성해줘: 너무 일반적이에요"
+    - intent: "register_project", payload: {"project_id": 1, "description": "AI 솔루션 제공"}
+    - intent: "generate_initial_emails", payload: {"project_id": 1, "leads": [...]}
+    - intent: "generate_followup_emails", payload: {"project_id": 1, "leads": [...], "user_feedback": "..."}
+    - intent: "generate_feedback_emails", payload: {"project_id": 1, "leads": [...], "user_feedback": "..."}
     """
     try:
-        result = chatbot_handler(req.prompt, req.payload)
+        result = chatbot_handler(req.intent, req.prompt, req.payload)
         return result
     except Exception as e:
         return {"error": f"서버 오류: {str(e)}"}
