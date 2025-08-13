@@ -26,11 +26,10 @@ export async function chatbotHandler(input: string) {
     }
     case 'followup_email':
       return await emailFuncs.generateFollowupEmail(extracted_params);
-    case 'email_rewrite_request':
-      return await emailFuncs.regenerateEmailWithFeedback(extracted_params);
     case 'analyze_email':
       return await emailFuncs.analyzeEmailIssues(extracted_params);
     case 'handle_email_rejection':
+      // 통합된 이메일 재작성 처리 (거부/취소 모두 처리)
       return await emailFuncs.handleEmailRejection(extracted_params);
     case 'list_projects':
       return await projectFuncs.listProjects();

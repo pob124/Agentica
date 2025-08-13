@@ -5,7 +5,6 @@ const INTENT_LIST = [
     'connect_leads',
     'initial_email',
     'followup_email',
-    'email_rewrite_request',
     'analyze_email',
     'handle_email_rejection',
     'list_projects',
@@ -25,9 +24,13 @@ export async function analyzePromptAI(prompt) {
 - 반드시 아래 JSON 형식으로만 응답해. 그 외 설명은 절대 포함하지 마.
 - 형식을 어기면 시스템은 너의 응답을 무시하고 fallback 처리를 한다.
 
+🚨 특별 규칙:
+- "재작성요청"이 포함된 문장은 반드시 "handle_email_rejection"으로 분류해.
+- "재작성요청"이 있으면 다른 키워드는 무시하고 무조건 "handle_email_rejection"을 선택해.
+
 응답 형식:
 {
-  "intent": "register_project|register_lead|connect_leads|initial_email|followup_email|email_rewrite_request|analyze_email|handle_email_rejection|list_projects|list_leads|unknown",
+  "intent": "register_project|register_lead|connect_leads|initial_email|followup_email|analyze_email|handle_email_rejection|list_projects|list_leads|unknown",
   "extracted_params": {
     "userPrompt": "사용자가 입력한 전체 문장 그대로"
   },
@@ -46,17 +49,28 @@ export async function analyzePromptAI(prompt) {
             ? lastHistory
             : lastHistory.content ?? lastHistory.text ?? '';
         try {
-            const parsed = JSON.parse(lastText);
+            // 코드블록 제거
+            const cleanedText = lastText.replace(/```json|```/g, '').trim();
+            const parsed = JSON.parse(cleanedText);
             if (parsed.intent && INTENT_LIST.includes(parsed.intent)) {
-                console.log('🧠 analyzePromptAI 결과:', JSON.stringify(parsed, null, 2));
-                return parsed;
+                // 순환 참조 방지를 위해 필요한 속성만 추출
+                const safeResult = {
+                    intent: parsed.intent,
+                    extracted_params: parsed.extracted_params || {},
+                    confidence: parsed.confidence || 0.0
+                };
+                console.log('🧠 analyzePromptAI 결과:', JSON.stringify(safeResult, null, 2));
+                return safeResult;
             }
         }
-        catch { }
+        catch (parseError) {
+            console.error('JSON 파싱 오류:', parseError);
+        }
         // fallback으로 넘어감
         return fallbackInferIntent(prompt);
     }
-    catch {
+    catch (error) {
+        console.error('analyzePromptAI 오류:', error);
         return fallbackInferIntent(prompt);
     }
 }
@@ -66,38 +80,46 @@ function fallbackInferIntent(prompt) {
     console.log('🔍 fallback 분석 중:', { prompt, lower });
     const scoringRules = [
         {
+            intent: 'handle_email_rejection',
+            mustInclude: ['재작성요청'],
+            mustNotInclude: [], // 재작성요청이 있으면 다른 키워드는 무시
+            optional: ['취소', 'cancel', '발송취소', '보내지마', '안보내', '다시', '거부', '거절', '거절됨', '거부됨'],
+            priority: 10, // 최고 우선순위
+        },
+        {
             intent: 'register_project',
             mustInclude: ['사업'],
+            mustNotInclude: ['재작성요청'],
             optional: ['프로젝트', '등록', '추가', '시작', '진행', '런칭', '설립', '개발', '추진', '할거야', '등록해줘'],
         },
         {
             intent: 'register_lead',
             mustInclude: ['기업', '회사', '고객', '리드'],
+            mustNotInclude: ['재작성요청'],
             optional: ['등록', '추가', 'lead', '담당', '이메일'],
         },
         {
             intent: 'connect_leads',
             mustInclude: ['연결'],
+            mustNotInclude: ['재작성요청'],
             optional: ['기업', '리드', '프로젝트', '사업', 'auto-connect'],
         },
         {
             intent: 'initial_email',
             mustInclude: ['메일'],
-            optional: ['작성', '써', '초안', '제안', '보내', '보내줘', '기업', '회사', '소개', '제공', '여러', '다중']
+            mustNotInclude: ['재작성요청'],
+            optional: ['작성', '써', '초안', '제안', '보내', '보내줘', '기업', '회사', '소개', '제공', '여러', '다중'],
         },
         {
             intent: 'followup_email',
             mustInclude: ['후속'],
+            mustNotInclude: ['재작성요청'],
             optional: ['메일', '다시', '보내', 'follow'],
-        },
-        {
-            intent: 'email_rewrite_request',
-            mustInclude: ['메일'],
-            optional: ['다시', '수정', '별로', '재작성', '고쳐', '거부'],
         },
         {
             intent: 'analyze_email',
             mustInclude: ['분석'],
+            mustNotInclude: ['재작성요청', '재작성'],
             optional: ['품질', '진단', '이메일'],
         },
         {
@@ -114,19 +136,36 @@ function fallbackInferIntent(prompt) {
     let bestIntent = 'unknown';
     let bestScore = 0;
     for (const rule of scoringRules) {
-        const hasMust = rule.mustInclude.every(k => lower.includes(k));
+        const hasMust = rule.mustInclude.every(k => {
+            const found = lower.includes(k);
+            console.log(`  - "${k}" 포함 여부: ${found} (${lower.indexOf(k)})`);
+            return found;
+        });
+        const hasMustNot = rule.mustNotInclude && rule.mustNotInclude.some(k => {
+            const found = lower.includes(k);
+            console.log(`  - "${k}" 제외 여부: ${found} (${lower.indexOf(k)})`);
+            return found;
+        });
         console.log(`🔍 ${rule.intent} 체크:`, {
             mustInclude: rule.mustInclude,
             hasMust,
+            mustNotInclude: rule.mustNotInclude,
+            hasMustNot,
             optional: rule.optional.filter(k => lower.includes(k))
         });
-        if (!hasMust)
+        if (!hasMust || hasMustNot) {
+            console.log(`❌ ${rule.intent} 제외: hasMust=${hasMust}, hasMustNot=${hasMustNot}`);
             continue;
+        }
         const optionalMatches = rule.optional.filter(k => lower.includes(k)).length;
-        const score = optionalMatches + 1;
+        const baseScore = optionalMatches + 1;
+        const priority = rule.priority || 1;
+        const score = baseScore * priority;
+        console.log(`✅ ${rule.intent} 점수: ${score} (base: ${baseScore}, priority: ${priority})`);
         if (score > bestScore) {
             bestIntent = rule.intent;
             bestScore = score;
+            console.log(`🏆 새로운 최고 점수: ${rule.intent} (${score})`);
         }
     }
     return {

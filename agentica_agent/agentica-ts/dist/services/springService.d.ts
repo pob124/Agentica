@@ -39,4 +39,5 @@ export declare const springService: {
         responseSummary: string;
         responseType: string;
     }): Promise<any>;
+    saveEmailToSession(emailData: any): Promise<any>;
 };

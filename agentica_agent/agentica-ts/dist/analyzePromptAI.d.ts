@@ -1,4 +1,4 @@
-declare const INTENT_LIST: readonly ["register_project", "register_lead", "connect_leads", "initial_email", "followup_email", "email_rewrite_request", "analyze_email", "handle_email_rejection", "list_projects", "list_leads"];
+declare const INTENT_LIST: readonly ["register_project", "register_lead", "connect_leads", "initial_email", "followup_email", "analyze_email", "handle_email_rejection", "list_projects", "list_leads"];
 type Intent = typeof INTENT_LIST[number];
 export interface AnalyzePromptResult {
     intent: Intent | 'unknown';

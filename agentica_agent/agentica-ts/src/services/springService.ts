@@ -102,6 +102,11 @@ export const springService = {
       responseType
     });
     return res.data;
+  },
+  
+  async saveEmailToSession(emailData: any) {
+    const res = await axios.post(`${BASE_URL}/emails/save-to-session`, emailData);
+    return res.data;
   }
   // 필요시 추가 엔드포인트 여기에 계속 확장
 };
